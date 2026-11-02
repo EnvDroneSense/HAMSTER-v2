@@ -5,6 +5,13 @@ Parallel version of the Heat And MoiSture Tracking framEwoRk
 
 This is an updated and improved version of the *Heat And MoiSture Tracking framEwoRk* (see https://github.com/h-cel/hamster). One of the main updates is that part of the code is now parallelized. The new version follows the same logic as the previous version in that HAMSTER is mainly based on the WaterSip moisture tracking algorithm (https://gfi.wiki.uib.no/WaterSip), but including bias correction by ingesting evaporation and precipitation observations. Furthermore, unlike WaterSip, HAMSTER is also adapted for tracking sensible heat. However, this new version has a completely different code structure to the previous one. HAMSTER v2 now consists of two python scripts (*preprocessing.py* and *tracking.py*), plus an additional one with some useful functions (*utilities.py*). It also includes a control file (*namelist.input*) to set some input variables.
 
+## Repository layout
+
+| Folder | Holds |
+|---|---|
+| `python/` | the Python code: `preprocessing.py`, `tracking.py`, `utilities.py`, `namelist.input`, `example/` (job scripts, sink mask) and `parallel-HAMSTER_forward/`. Where this README says *example folder* or *parallel-HAMSTER_forward*, read `python/example` and `python/parallel-HAMSTER_forward`. Copy the files to the run folder as before |
+| `julia/` | `HAMSTER.jl`, a Julia port in progress (structure only; the Python code is the reference) |
+
 ## Context
 
 HAMSTER v2 attributes the moisture sources for a precipitation event in a specific region, which we will normally refer to as the sink  region. This is achieved by tracking the moisture gains and losses of the air parcels contributing to the precipitation event under study in the days prior to the event. The definition of an air parcel must be understood from a Lagrangian point of view, in which the atmosphere is divided into particles that follow the atmospheric flow. HAMSTER therefore needs to be forced with the outputs of a Lagrangian transport model, which provides us with the positions of the parcels as well as their associated specific humidity, among other variables. The code is only set up to read the outputs of the FLEXPART v11 Lagrangian model (see https://www.flexpart.eu). Global FLEXPART-ERA5 trajectories from 1979 until 2024 and with approx. 20 million parcels are publicaly available (https://zenodo.org/records/17952362). To work with another Lagrangian model, the part of the code responsible for reading the input data would have to be adapted.

@@ -1,0 +1,15 @@
+name = "HAMSTER"
+uuid = "b1c648ad-219c-4d13-8016-bd6b090fbbf0"
+version = "0.1.0"
+
+[deps]
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c34ef47e8c"
+
+[targets]
+test = ["Test"]
+
+[compat]
+julia = "1.10"
