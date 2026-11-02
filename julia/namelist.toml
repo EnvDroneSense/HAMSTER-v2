@@ -22,7 +22,8 @@ obs_heat = "heat_era5_3hourly"
 obs_prec = "prec_era5_3hourly"
 
 [flags]
+forward = false
 track_heat = false
 obs_era5 = true
-save_e2q = true
+save_q = true
 save_diagnose = true

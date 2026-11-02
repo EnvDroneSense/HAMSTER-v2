@@ -88,12 +88,17 @@ function preprocess_window(config, arrival, first)
     write_corrected(out[2], raw[2], parcels, (; Delta_q, theta=column(theta, 2), Delta_theta))
 end
 
-"Bias-correct all time windows from `start_date - num_days + dt` to `end_date` (see `preprocess_window`)."
+"""
+Bias-correct all time windows (see `preprocess_window`): arrival dates from `start_date - num_days + dt` to `end_date`;
+forward from `start_date + dt` to `end_date + num_days`.
+"""
 function preprocess(config)
     c, d = config["constants"], config["dates"]
     format = dateformat"yyyy-mm-dd_HH"
-    first_date = DateTime(d["start_date"], format) - Day(c["num_days"]) + Hour(c["dt"])
-    for arrival in first_date:Hour(c["dt"]):DateTime(d["end_date"], format)
+    forward = config["flags"]["forward"]
+    start, stop = DateTime(d["start_date"], format), DateTime(d["end_date"], format)
+    first_date = forward ? start + Hour(c["dt"]) : start - Day(c["num_days"]) + Hour(c["dt"])
+    for arrival in first_date:Hour(c["dt"]):(forward ? stop + Day(c["num_days"]) : stop)
         preprocess_window(config, arrival, arrival == first_date)
     end
 end
