@@ -17,7 +17,7 @@ function only_theta(qv::AbstractArray{T}, temp, rho) where {T<:AbstractFloat}
     w = @. qv / (1 - qv)
     tv = @. temp / (1 - w * (1 - ε) / (w + ε))
     p_hpa = @. rho * R_d * tv / 100
-    return @. temp * (1000 / p_hpa)^(T(0.2854) * (1 - T(0.00028) * w))
+    return @. temp * (1000 / p_hpa)^(T(0.2854) * (1 - T(0.28) * w))
 end
 
 # function RH_theta(qv, temp, rho)
@@ -30,14 +30,14 @@ end
 #     e_s = @. 611.2 * exp(17.67 * (temp - 273.15) / (temp - 273.15 + 243.5))
 #     RH = @. 100 * e / e_s
 #     p_hpa = @. p_pa / 100
-#     theta = @. temp * (1000 / p_hpa)^(0.2854 * (1 - 0.00028 * w))
+#     theta = @. temp * (1000 / p_hpa)^(0.2854 * (1 - 0.28 * w))
 #     return RH, theta
 # end
 
 """
     ongrid(nx, ny, x_index, y_index, f, mass)
 
-Add `f * mass` of each parcel to its grid cell, for every time step. `f`, `x_index` and
+Add `f * mass` of each parcel to its grid cell, for every time step. Parcels outside the grid are skipped. `f`, `x_index` and
 `y_index` are `(parcels, times)`; returns a Float32 array `(nx, ny, times)`.
 """
 function ongrid(nx, ny, x_index, y_index, f, mass)
@@ -46,7 +46,9 @@ function ongrid(nx, ny, x_index, y_index, f, mass)
     for t in 1:ntimes
         for j in 1:numpart
             # ms[x_index[j, t], y_index[j, t], t] = ms[x_index[j, t], y_index[j, t], t] + f[j, t] * mass[j, t]
-            ms[x_index[j, t], y_index[j, t], t] = ms[x_index[j, t], y_index[j, t], t] + f[j, t] * mass
+            if 1 <= x_index[j, t] <= nx && 1 <= y_index[j, t] <= ny
+                ms[x_index[j, t], y_index[j, t], t] = ms[x_index[j, t], y_index[j, t], t] + f[j, t] * mass
+            end
         end
     end
     return ms
@@ -55,16 +57,18 @@ end
 """
     ongrid1d(nx, ny, x_index, y_index, f, mass)
 
-One time step of `ongrid`, for all parcels but the last. Returns the summed `f * mass` and
+One time step of `ongrid`. Returns the summed `f * mass` and
 the number of parcels per cell, both `(nx, ny)`.
 """
 function ongrid1d(nx, ny, x_index, y_index, f, mass)
     var1 = zeros(Float32, nx, ny)
     var2 = zeros(Float32, nx, ny)
-    for j in 1:length(f)-1
+    for j in eachindex(f)
         # var1[x_index[j], y_index[j]] = var1[x_index[j], y_index[j]] + f[j] * mass[j]
-        var1[x_index[j], y_index[j]] = var1[x_index[j], y_index[j]] + f[j] * mass
-        var2[x_index[j], y_index[j]] = var2[x_index[j], y_index[j]] + 1
+        if 1 <= x_index[j] <= nx && 1 <= y_index[j] <= ny
+            var1[x_index[j], y_index[j]] = var1[x_index[j], y_index[j]] + f[j] * mass
+            var2[x_index[j], y_index[j]] = var2[x_index[j], y_index[j]] + 1
+        end
     end
     return var1, var2
 end
@@ -72,14 +76,16 @@ end
 """
     hmin(nx, ny, x_index, y_index, h1, h2)
 
-Lowest `h1` and `h2` per grid cell for all parcels but the last, 30000 where a cell has none.
+Lowest `h1` and `h2` per grid cell, 30000 where a cell has none. Parcels outside the grid are skipped.
 """
 function hmin(nx, ny, x_index, y_index, h1, h2)
     var1 = fill(30000.0f0, nx, ny)
     var2 = fill(30000.0f0, nx, ny)
-    for j in 1:length(h1)-1
-        var1[x_index[j], y_index[j]] = min(var1[x_index[j], y_index[j]], h1[j])
-        var2[x_index[j], y_index[j]] = min(var2[x_index[j], y_index[j]], h2[j])
+    for j in eachindex(h1)
+        if 1 <= x_index[j] <= nx && 1 <= y_index[j] <= ny
+            var1[x_index[j], y_index[j]] = min(var1[x_index[j], y_index[j]], h1[j])
+            var2[x_index[j], y_index[j]] = min(var2[x_index[j], y_index[j]], h2[j])
+        end
     end
     return var1, var2
 end

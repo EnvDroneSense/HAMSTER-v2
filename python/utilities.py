@@ -70,7 +70,7 @@ def only_theta(qv,temp,rho):
   tv = temp/(1.0-w*(1.0-eps)/(w+eps))      
   p_pa = rho*R_d*tv                        
   p_hpa = p_pa/1.E2
-  theta = temp*(1000./p_hpa)**(0.2854*(1.-0.00028*w))
+  theta = temp*(1000./p_hpa)**(0.2854*(1.-0.00028*w*1000.))
   return theta
 
 #Compute relative humidity and potential temperature
@@ -85,7 +85,7 @@ def RH_theta(qv,temp,rho):
   e_s = 611.2*np.exp(17.67*(temp-273.15)/(temp-273.15+243.5))
   RH = 100.*e/e_s 
   p_hpa = p_pa/1.E2
-  theta = temp*(1000./p_hpa)**(0.2854*(1.-0.00028*w))
+  theta = temp*(1000./p_hpa)**(0.2854*(1.-0.00028*w*1000.))
   return RH,theta
 
 #Loop for assigning moisture gains to grid cells and integrating vertically 
@@ -97,7 +97,9 @@ def ongrid(nx,ny,x_index,y_index,f,mass):
   for t in range(ntimes):
     for j in range(numpart):
       #ms[t,y_index[t,j],x_index[t,j]] = ms[t,y_index[t,j],x_index[t,j]] + f[t,j]*mass[t,j]
-      ms[t,y_index[t,j],x_index[t,j]] = ms[t,y_index[t,j],x_index[t,j]] + f[t,j]*mass
+      #Skip parcels outside the grid (e.g. NaN coordinates)
+      if 0 <= x_index[t,j] < nx and 0 <= y_index[t,j] < ny:
+        ms[t,y_index[t,j],x_index[t,j]] = ms[t,y_index[t,j],x_index[t,j]] + f[t,j]*mass
   return ms
   
 #1D version of ongrid function
@@ -106,10 +108,11 @@ def ongrid1D(nx,ny,x_index,y_index,f,mass):
   #Define grid
   var1 = np.zeros((ny,nx), dtype=np.float32)
   var2 = np.zeros((ny,nx), dtype=np.float32)
-  for j in range(f.shape[0]-1):
+  for j in range(f.shape[0]):
     #var1[y_index[j],x_index[j]] = var1[y_index[j],x_index[j]] + f[j]*mass[j]
-    var1[y_index[j],x_index[j]] = var1[y_index[j],x_index[j]] + f[j]*mass
-    var2[y_index[j],x_index[j]] = var2[y_index[j],x_index[j]] + 1
+    if 0 <= x_index[j] < nx and 0 <= y_index[j] < ny:
+      var1[y_index[j],x_index[j]] = var1[y_index[j],x_index[j]] + f[j]*mass
+      var2[y_index[j],x_index[j]] = var2[y_index[j],x_index[j]] + 1
   return var1,var2
   
 #Find height of the first parcel in the column
@@ -118,9 +121,10 @@ def hmin(nx,ny,x_index,y_index,h1,h2):
   #Define grid
   var1 = np.zeros((ny,nx), dtype=np.float32)+30000.
   var2 = np.zeros((ny,nx), dtype=np.float32)+30000.
-  for j in range(h1.shape[0]-1):
-    var1[y_index[j],x_index[j]] = min(var1[y_index[j],x_index[j]],h1[j])
-    var2[y_index[j],x_index[j]] = min(var2[y_index[j],x_index[j]],h2[j])
+  for j in range(h1.shape[0]):
+    if 0 <= x_index[j] < nx and 0 <= y_index[j] < ny:
+      var1[y_index[j],x_index[j]] = min(var1[y_index[j],x_index[j]],h1[j])
+      var2[y_index[j],x_index[j]] = min(var2[y_index[j],x_index[j]],h2[j])
   return var1,var2 
   
 #---------------------------------------------------------------------------------------------------

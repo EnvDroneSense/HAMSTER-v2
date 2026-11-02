@@ -32,4 +32,7 @@ end
           (ref["ongrid1d_f64_out1"], ref["ongrid1d_f64_out2"])
     @test hmin(nx, ny, xi[:, 1], yi[:, 1], ref["hmin_h1"], ref["hmin_h2"]) ==
           (ref["hmin_out1"], ref["hmin_out2"])
+
+    # parcels outside the grid are skipped
+    @test sum(ongrid1d(2, 2, [1, 99, -5], [1, 1, 1], [1.0, 1.0, 1.0], 1.0)[1]) == 1
 end
