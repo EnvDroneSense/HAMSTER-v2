@@ -42,3 +42,40 @@ function read_window(files, parcels, names)
     haskey(window, :lon) && (@. window.lon = ifelse(window.lon > 180, window.lon - 360, window.lon))
     return window
 end
+
+"""
+    read_obs(file, name, time, dx, dy)
+
+Field `name` of an ERA5 file at `time`, shifted to longitudes -180 to 180 and interpolated linearly onto the output
+grid. Returns an `(nx, ny)` array.
+"""
+function read_obs(file, name, time, dx, dy)
+    lons = range(-180, step=dx, length=round(Int, 360 / dx))
+    lats = range(-90, step=dy, length=round(Int, 180 / dy) + 1)
+    NCDataset(file) do ds
+        it = findfirst(==(time), ds["time"][:])
+        isnothing(it) && error("time $time is not in $file")
+        lon = mod.(ds["longitude"][:] .+ 180, 360) .- 180
+        lat = ds["latitude"][:]
+        field = nomissing(ds[name][:, :, it], NaN)
+        ilon, ilat = sortperm(lon), sortperm(lat)
+        itp = linear_interpolation((lon[ilon], lat[ilat]), field[ilon, ilat])
+        return [itp(x, y) for x in lons, y in lats]
+    end
+end
+
+"""
+    read_observations(config, time)
+
+Observed evaporation, precipitation and (with `track_heat`) sensible heat at `time`, as `(nx, ny)` Float32 arrays
+`(e_obs, p_obs, h_obs)`. Evaporation and heat are >= 0 and precipitation <= 0; `h_obs` is `nothing` without heat.
+"""
+function read_observations(config, time)
+    path, names = config["paths"]["path_obs"], config["names"]
+    dt, dx, dy = config["constants"]["dt"], config["constants"]["dx"], config["constants"]["dy"]
+    obs(file, name) = Float32.(read_obs(joinpath(path, file * ".nc"), name, time, dx, dy))
+    e_obs = max.(obs(names["obs_evap"], "e") .* -1000.0f0, 0.0f0)
+    p_obs = min.(obs(names["obs_prec"], "tp") .* -1000.0f0, 0.0f0)
+    h_obs = config["flags"]["track_heat"] ? max.(obs(names["obs_heat"], "sshf") ./ Float32(-dt * 3600), 0.0f0) : nothing
+    return e_obs, p_obs, h_obs
+end
