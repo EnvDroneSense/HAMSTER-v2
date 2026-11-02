@@ -89,3 +89,19 @@ function hmin(nx, ny, x_index, y_index, h1, h2)
     end
     return var1, var2
 end
+
+"Grid size, spacing, mass per parcel and cell areas `(nx, ny)` in m^2 (NaN where the area is 0) from the settings."
+function grid_definition(config)
+    c = config["constants"]
+    dx, dy = c["dx"], c["dy"]
+    nx, ny = trunc(Int, 360 / dx), trunc(Int, 180 / dy) + 1
+    lat = Float32.(range(-90, step=dy, length=ny))'
+    lats1 = @. (lat + Float32(dy / 2)) * Float32(π) / 180.0f0
+    lats2 = @. (lat - Float32(dy / 2)) * Float32(π) / 180.0f0
+    area = Float32(dx * π / 180 * 6371000.0^2) .* (sin.(lats1) .- sin.(lats2))
+    areas = repeat(ifelse.(area .== 0, NaN32, area), nx)
+    return (; nx, ny, dx, dy, mass=c["atm_mass"] / c["num_parc"], areas)
+end
+
+"Grid column or row (1-based) of `x`, a coordinate counted from the grid start, for spacing `d`. NaN falls outside the grid."
+gridindex(x, d) = isfinite(x) ? round(Int, x / d) + 1 : typemin(Int)

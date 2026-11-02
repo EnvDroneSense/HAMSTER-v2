@@ -3,6 +3,7 @@ module HAMSTER
 using Dates
 using Interpolations
 using NCDatasets
+using Statistics
 
 # Julia port of the Python code in ../python. Modules are added here as they are ported.
 
@@ -15,6 +16,6 @@ include("preprocessing.jl")
 
 export midpoints, only_theta, ongrid, ongrid1d, hmin
 export read_mask, partoutput_files, read_window, read_obs, read_observations
-export delta
+export delta, diagnose, correct_deltas, grid_definition, gridindex
 
 end
