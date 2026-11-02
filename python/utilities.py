@@ -69,13 +69,13 @@ def only_theta(qv,temp,rho):
   w = qv/(1.0-qv)                          
   tv = temp/(1.0-w*(1.0-eps)/(w+eps))      
   p_pa = rho*R_d*tv                        
-  p_hpa=p_pa/1.E2
-  theta=temp*(1000./p_hpa)**(0.2854*(1.-0.00028*w))
+  p_hpa = p_pa/1.E2
+  theta = temp*(1000./p_hpa)**(0.2854*(1.-0.00028*w))
   return theta
 
 #Compute relative humidity and potential temperature
 def RH_theta(qv,temp,rho):
-  R_d= 287.057                           
+  R_d = 287.057                           
   R_w = 461.5                            
   eps = R_d/R_w
   w = qv/(1.0-qv)                          
@@ -84,8 +84,8 @@ def RH_theta(qv,temp,rho):
   e = p_pa*w/(w+eps)                       
   e_s = 611.2*np.exp(17.67*(temp-273.15)/(temp-273.15+243.5))
   RH = 100.*e/e_s 
-  p_hpa=p_pa/1.E2
-  theta=temp*(1000./p_hpa)**(0.2854*(1.-0.00028*w))
+  p_hpa = p_pa/1.E2
+  theta = temp*(1000./p_hpa)**(0.2854*(1.-0.00028*w))
   return RH,theta
 
 #Loop for assigning moisture gains to grid cells and integrating vertically 

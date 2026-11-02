@@ -5,4 +5,8 @@ module HAMSTER
 "Package version, from Project.toml."
 version() = pkgversion(@__MODULE__)
 
+include("utilities.jl")
+
+export midpoints, only_theta, ongrid, ongrid1d, hmin
+
 end
