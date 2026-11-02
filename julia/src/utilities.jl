@@ -105,3 +105,6 @@ end
 
 "Grid column or row (1-based) of `x`, a coordinate counted from the grid start, for spacing `d`. NaN falls outside the grid."
 gridindex(x, d) = isfinite(x) ? round(Int, x / d) + 1 : typemin(Int)
+
+"Replace NaN by 0."
+nan0(a) = replace(a, NaN32 => 0.0f0)

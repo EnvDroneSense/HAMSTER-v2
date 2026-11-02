@@ -125,3 +125,25 @@ function write_corrected(file, raw_file, parcels, extras)
         end
     end
 end
+
+"""
+    write_attribution(file, config, time, tlevel, name, field)
+
+Write one attribution field `(nx, ny, days)` (`name` is `E2P`, `E2Q` or `H2T`) for `time` to a NetCDF file with
+dimensions `(lon, lat, tlevel, time)`; `tlevel` are the days the contributions come from.
+"""
+function write_attribution(file, config, time, tlevel, name, field)
+    g = grid_definition(config)
+    mkpath(dirname(file))
+    NCDataset(file, "c") do ds
+        defDim(ds, "lon", g.nx)
+        defDim(ds, "lat", g.ny)
+        defDim(ds, "tlevel", length(tlevel))
+        defDim(ds, "time", 1)
+        defVar(ds, "lon", Float32.(range(-180, step=g.dx, length=g.nx)), ("lon",))
+        defVar(ds, "lat", Float32.(range(-90, step=g.dy, length=g.ny)), ("lat",))
+        defVar(ds, "tlevel", tlevel, ("tlevel",))
+        defVar(ds, "time", [time], ("time",))
+        defVar(ds, name, Float32, ("lon", "lat", "tlevel", "time"))[:, :, :, 1] = field
+    end
+end

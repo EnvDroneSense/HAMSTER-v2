@@ -19,7 +19,6 @@ function diagnose(config, lon, lat, qv, Delta_q, Delta_theta)
     y = gridindex.(latmid .+ 90, Float32(g.dy))
 
     grid(f, keep) = ongrid1d(g.nx, g.ny, x[keep], y[keep], f[keep], g.mass)
-    nan0(a) = replace(a, NaN32 => 0.0f0)
     iwv, n_part = ongrid1d(g.nx, g.ny, x, y, vec(mean(qv, dims=2)), g.mass)
     evap, n_evap = grid(Delta_q, Delta_q .> 0)
     prec, n_prec = grid(Delta_q, Delta_q .< 0)
