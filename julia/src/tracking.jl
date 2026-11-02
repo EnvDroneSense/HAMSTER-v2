@@ -7,7 +7,7 @@ clean(x) = (x < 0 || !isfinite(x)) ? zero(x) : x
 Contribution of each time interval's moisture (or heat) gain to the parcel at the end of the trajectory. `q` and
 `dq` are `(parcels, intervals)`: the quantity at the start of each interval and its change. A gain is kept as
 is; a loss reduces the earlier contributions in proportion to what the parcel loses. The last interval is left 0.
-Returns Float64, as Python does (`np.zeros` without dtype).
+Returns Float64.
 """
 function adjust_losses(q, dq)
     n, m = size(dq)
@@ -50,7 +50,7 @@ midpoint, rounded to 0.25 degrees, is in the set `sink` of `(lon, lat)` tuples (
 """
 function on_sink(sink, lon, lat)
     lonmid, latmid = midpoints(lon[:, end], lon[:, end-1], lat[:, end], lat[:, end-1])
-    snap(x) = Float64(round(x * 4.0f0) / 4.0f0) + 0.0   # + 0.0 turns -0.0 into 0.0, which equals 0.0 in Python
+    snap(x) = Float64(round(x * 4.0f0) / 4.0f0) + 0.0   # + 0.0 turns -0.0 into 0.0 so that it matches 0.0 in the sink set
     return [(snap(x), snap(y)) in sink for (x, y) in zip(lonmid, latmid)]
 end
 
@@ -91,43 +91,49 @@ function attribute(config, sink, datesmid, lon, lat, qv, Delta_q, theta, Delta_t
     return (; E2P=mm(E2P), E2Q=isnothing(E2Q) ? nothing : mm(E2Q), H2T=isnothing(H2T) ? nothing : wm2(H2T))
 end
 
-"""
-    track_window(config, sink, arrival)
-
-Attribution for the parcels in the sink at `arrival`: read the corrected partoutputs of the `num_days` before it, run
-`attribute` and write `attribution_{e2p,e2q,h2t}_<arrival>.nc` to `path_data2/attribution`.
-"""
-function track_window(config, sink, arrival)
-    c, flags, paths = config["constants"], config["flags"], config["paths"]
-    dt, half = c["dt"], Second(c["dt"] * 1800)
-    starting = arrival - Day(c["num_days"])
-    dates = starting:Hour(dt):arrival
-    datesmid = starting+half:Hour(dt):arrival-half
-
-    names = ["lon", "lat", "sh", "Delta_q"]
-    flags["track_heat"] && append!(names, ["theta", "Delta_theta"])
-    files = partoutput_files(joinpath(paths["path_data1"], "corrected"), dates)
-    w = read_window(files, 1:c["num_parc"], names)
-    r = attribute(config, sink, datesmid, w.lon, w.lat, w.sh, w.Delta_q, get(w, :theta, nothing), get(w, :Delta_theta, nothing))
-
-    tlevel = DateTime.(unique(Date.(datesmid)))
-    stamp = Dates.format(arrival, "yyyymmddHHMMSS")
-    for (name, field) in pairs(r)
-        isnothing(field) || write_attribution(joinpath(paths["path_data2"], "attribution", "attribution_$(lowercase(String(name)))_$stamp.nc"), config, arrival - half, tlevel, String(name), field)
-    end
+"Parcel ranges of `n` blocks of equal size; the last block takes the remainder."
+function parcel_blocks(num_parc, n)
+    len = num_parc ÷ n
+    return [(i-1)*len+1:(i == n ? num_parc : i * len) for i in 1:n]
 end
 
-"""
-    track(config)
+"Drop the first time step of `window` (a named tuple of `(parcels, times)` arrays) and append the new one."
+shift_window(window, new) = map((a, b) -> hcat(a[:, 2:end], b), window, new)
 
-Attribution for every arrival date from `start_date + dt` to `end_date` (see `track_window`). Every window reads
-all its files again; the window shift of the Python code comes in step 10.
+"Sum of the fields of the block results `rs` (the gather and sum over the ranks); `nothing` where a field is off."
+combine(rs) = map((fields...) -> isnothing(first(fields)) ? nothing : sum(fields), rs...)
+
 """
-function track(config)
-    d, dt = config["dates"], config["constants"]["dt"]
+    track(config; blocks=1)
+
+Attribution for every arrival date from `start_date + dt` to `end_date`: for each date, `attribute` is run on the
+`num_days` before it and `attribution_{e2p,e2q,h2t}_<arrival>.nc` is written to `path_data2/attribution`. The parcels
+are split into `blocks` parts that are processed one after the other and summed. The first date reads all files;
+every later date reads only its newest file and shifts the window.
+"""
+function track(config; blocks=1)
+    c, d, flags, paths = config["constants"], config["dates"], config["flags"], config["paths"]
+    dt, half = c["dt"], Second(c["dt"] * 1800)
     format = dateformat"yyyy-mm-dd_HH"
-    sink = Set(read_mask(joinpath(config["paths"]["path_mask"], "mask.nc")))
+    sink = Set(read_mask(joinpath(paths["path_mask"], "mask.nc")))
+    names = ["lon", "lat", "sh", "Delta_q"]
+    flags["track_heat"] && append!(names, ["theta", "Delta_theta"])
+    parcels = parcel_blocks(c["num_parc"], blocks)
+
+    window = nothing
     for arrival in DateTime(d["start_date"], format)+Hour(dt):Hour(dt):DateTime(d["end_date"], format)
-        track_window(config, sink, arrival)
+        starting = arrival - Day(c["num_days"])
+        dates = isnothing(window) ? (starting:Hour(dt):arrival) : [arrival]
+        datesmid = starting+half:Hour(dt):arrival-half
+        files = partoutput_files(joinpath(paths["path_data1"], "corrected"), dates)
+        new = [read_window(files, p, names) for p in parcels]
+        window = isnothing(window) ? new : shift_window.(window, new)
+
+        r = combine([attribute(config, sink, datesmid, w.lon, w.lat, w.sh, w.Delta_q, get(w, :theta, nothing), get(w, :Delta_theta, nothing)) for w in window])
+        tlevel = DateTime.(unique(Date.(datesmid)))
+        stamp = Dates.format(arrival, "yyyymmddHHMMSS")
+        for (name, field) in pairs(r)
+            isnothing(field) || write_attribution(joinpath(paths["path_data2"], "attribution", "attribution_$(lowercase(String(name)))_$stamp.nc"), config, arrival - half, tlevel, String(name), field)
+        end
     end
 end
