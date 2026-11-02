@@ -79,3 +79,49 @@ function read_observations(config, time)
     h_obs = config["flags"]["track_heat"] ? max.(obs(names["obs_heat"], "sshf") ./ Float32(-dt * 3600), 0.0f0) : nothing
     return e_obs, p_obs, h_obs
 end
+
+"""
+    write_diagnosis(file, config, time, d)
+
+Write the gridded fields of `diagnose` (`d`) for `time` to a NetCDF file with dimensions `(lon, lat, time)`: `E`, `P`,
+`IWV` and, if present, `H`, each with the number of parcels per cell in `*_n_part` (`n_part` for `IWV`).
+"""
+function write_diagnosis(file, config, time, d)
+    g = grid_definition(config)
+    fields = (E=d.evap, E_n_part=d.n_evap, P=d.prec, P_n_part=d.n_prec, H=d.heat, H_n_part=d.n_heat, IWV=d.iwv, n_part=d.n_part)
+    mkpath(dirname(file))
+    NCDataset(file, "c") do ds
+        defDim(ds, "lon", g.nx)
+        defDim(ds, "lat", g.ny)
+        defDim(ds, "time", 1)
+        defVar(ds, "lon", Float32.(range(-180, step=g.dx, length=g.nx)), ("lon",))
+        defVar(ds, "lat", Float32.(range(-90, step=g.dy, length=g.ny)), ("lat",))
+        defVar(ds, "time", [time], ("time",))
+        for (name, a) in pairs(fields)
+            isnothing(a) || (defVar(ds, String(name), eltype(a), ("lon", "lat", "time"))[:, :, 1] = a)
+        end
+    end
+end
+
+"""
+    write_corrected(file, raw_file, parcels, extras)
+
+Write the file that the tracking reads for one time step: `lon`, `lat` and `sh` of the parcels `parcels` copied from
+`raw_file`, and the variables of the named tuple `extras` (`Delta_q`, `theta`, `Delta_theta`; entries that are
+`nothing` are skipped). Same layout as the raw files, so `read_window` reads it.
+"""
+function write_corrected(file, raw_file, parcels, extras)
+    mkpath(dirname(file))
+    NCDataset(raw_file) do raw
+        NCDataset(file, "c") do ds
+            defDim(ds, "time", 1)
+            defDim(ds, "particle", length(parcels))
+            for name in ("lon", "lat", "sh")
+                defVar(ds, name, Float32, ("time", "particle"))[1, :] = raw[name].var[1, parcels]
+            end
+            for (name, a) in pairs(extras)
+                isnothing(a) || (defVar(ds, String(name), Float32, ("time", "particle"))[1, :] = a)
+            end
+        end
+    end
+end

@@ -57,3 +57,44 @@ function correct_deltas(d, Delta_q, Delta_theta, e_obs, p_obs, h_obs)
     Delta_theta = isnothing(Delta_theta) ? nothing : correct(Delta_theta, ratio(h_obs, d.heat), 1)
     return Delta_q, Delta_theta
 end
+
+"""
+    preprocess_window(config, arrival, first)
+
+Bias-correct the changes between `arrival - dt` and `arrival`: read the two partoutputs, correct the changes against
+the observations and write the corrected files to `path_data1/corrected` (and the diagnosis to `path_data1/diagnosis`
+with `save_diagnose`). The raw files are not changed. `first` also writes the file of `arrival - dt`, with zero changes.
+"""
+function preprocess_window(config, arrival, first)
+    c, flags, path = config["constants"], config["flags"], config["paths"]["path_data1"]
+    dt, parcels, heat = c["dt"], 1:c["num_parc"], config["flags"]["track_heat"]
+    before, middle = arrival - Hour(dt), arrival - Second(dt * 1800)
+    raw = partoutput_files(path, [before, arrival])
+    out = partoutput_files(joinpath(path, "corrected"), [before, arrival])
+
+    w = read_window(raw, parcels, heat ? ["lon", "lat", "sh", "T", "rho"] : ["lon", "lat", "sh"])
+    theta = heat ? only_theta(w.sh, w.T, w.rho) : nothing
+    Delta_q = delta(w.sh)
+    Delta_theta = heat ? delta(theta) : nothing
+
+    d = diagnose(config, w.lon, w.lat, w.sh, Delta_q, Delta_theta)
+    flags["save_diagnose"] && write_diagnosis(joinpath(path, "diagnosis", "diagnosis_" * Dates.format(arrival, "yyyymmddHHMMSS") * ".nc"), config, middle, d)
+    Delta_q, Delta_theta = correct_deltas(d, Delta_q, Delta_theta, read_observations(config, middle)...)
+
+    column(a, i) = isnothing(a) ? nothing : a[:, i]
+    if first
+        zero_q = zeros(Float32, length(parcels))
+        write_corrected(out[1], raw[1], parcels, (; Delta_q=zero_q, theta=column(theta, 1), Delta_theta=heat ? zero_q : nothing))
+    end
+    write_corrected(out[2], raw[2], parcels, (; Delta_q, theta=column(theta, 2), Delta_theta))
+end
+
+"Bias-correct all time windows from `start_date - num_days + dt` to `end_date` (see `preprocess_window`)."
+function preprocess(config)
+    c, d = config["constants"], config["dates"]
+    format = dateformat"yyyy-mm-dd_HH"
+    first_date = DateTime(d["start_date"], format) - Day(c["num_days"]) + Hour(c["dt"])
+    for arrival in first_date:Hour(c["dt"]):DateTime(d["end_date"], format)
+        preprocess_window(config, arrival, arrival == first_date)
+    end
+end

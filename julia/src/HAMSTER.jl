@@ -17,5 +17,6 @@ include("preprocessing.jl")
 export midpoints, only_theta, ongrid, ongrid1d, hmin
 export read_mask, partoutput_files, read_window, read_obs, read_observations
 export delta, diagnose, correct_deltas, grid_definition, gridindex
+export write_diagnosis, write_corrected, preprocess_window, preprocess
 
 end
