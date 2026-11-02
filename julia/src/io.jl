@@ -1,3 +1,38 @@
+"Keys of the namelist, by section, and the type each value must have."
+const NAMELIST = (
+    "dates" => ("start_date" => String, "end_date" => String),
+    "constants" => ("num_days" => Integer, "dt" => Integer, "dx" => Real, "dy" => Real, "num_parc" => Integer, "atm_mass" => Real),
+    "paths" => ("path_data1" => String, "path_data2" => String, "path_mask" => String, "path_obs" => String),
+    "names" => ("obs_evap" => String, "obs_heat" => String, "obs_prec" => String),
+    "flags" => ("forward" => Bool, "track_heat" => Bool, "obs_era5" => Bool, "save_q" => Bool, "save_diagnose" => Bool),
+)
+
+"""
+    read_config(path)
+
+Settings from the TOML namelist at `path`. Every key of `NAMELIST` must be there with a value of its type, no `set_...`
+placeholder may be left, dates are `yyyy-mm-dd_HH` and `obs_era5` must be true. All problems are reported in one error.
+"""
+function read_config(path)
+    config = TOML.parsefile(path)
+    problems = String[]
+    for (section, keys) in NAMELIST, (key, type) in keys
+        value = get(get(config, section, Dict()), key, nothing)
+        if isnothing(value)
+            push!(problems, "[$section] $key is missing")
+        elseif value isa String && occursin(r"(^|/)set_", value)
+            push!(problems, "[$section] $key is still the placeholder \"$value\"")
+        elseif !(value isa type) || (value isa Bool && type !== Bool)
+            push!(problems, "[$section] $key = $(repr(value)) is not of type $type")
+        elseif section == "dates" && isnothing(tryparse(DateTime, value, dateformat"yyyy-mm-dd_HH"))
+            push!(problems, "[$section] $key = \"$value\" is not a date of the form yyyy-mm-dd_HH")
+        end
+    end
+    get(get(config, "flags", Dict()), "obs_era5", true) === false && push!(problems, "[flags] obs_era5 = false is not supported")
+    isempty(problems) || error("namelist $path:\n  " * join(problems, "\n  "))
+    return config
+end
+
 "Longitude and latitude `(lon, lat)` of every sink cell (mask equal to 1) on a 0.25 degree grid."
 function read_mask(path)
     lon, lat, mask = NCDataset(path) do ds
@@ -44,14 +79,14 @@ function read_window(files, parcels, names)
 end
 
 """
-    read_obs(file, name, time, dx, dy)
+    read_obs(file, name, time, g)
 
 Field `name` of an ERA5 file at `time`, shifted to longitudes -180 to 180 and interpolated linearly onto the output
-grid. Returns an `(nx, ny)` array.
+grid `g` (see `grid_definition`). Returns an `(nx, ny)` array.
 """
-function read_obs(file, name, time, dx, dy)
-    lons = range(-180, step=dx, length=round(Int, 360 / dx))
-    lats = range(-90, step=dy, length=round(Int, 180 / dy) + 1)
+function read_obs(file, name, time, g)
+    lons = range(-180, step=g.dx, length=g.nx)
+    lats = range(-90, step=g.dy, length=g.ny)
     NCDataset(file) do ds
         it = findfirst(==(time), ds["time"][:])
         isnothing(it) && error("time $time is not in $file")
@@ -72,8 +107,8 @@ Observed evaporation, precipitation and (with `track_heat`) sensible heat at `ti
 """
 function read_observations(config, time)
     path, names = config["paths"]["path_obs"], config["names"]
-    dt, dx, dy = config["constants"]["dt"], config["constants"]["dx"], config["constants"]["dy"]
-    obs(file, name) = Float32.(read_obs(joinpath(path, file * ".nc"), name, time, dx, dy))
+    dt, g = config["constants"]["dt"], grid_definition(config)
+    obs(file, name) = Float32.(read_obs(joinpath(path, file * ".nc"), name, time, g))
     e_obs = max.(obs(names["obs_evap"], "e") .* -1000.0f0, 0.0f0)
     p_obs = min.(obs(names["obs_prec"], "tp") .* -1000.0f0, 0.0f0)
     h_obs = config["flags"]["track_heat"] ? max.(obs(names["obs_heat"], "sshf") ./ Float32(-dt * 3600), 0.0f0) : nothing

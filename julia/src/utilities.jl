@@ -1,12 +1,14 @@
 "Midpoint of two positions on the sphere, in degrees. Returns `(lon, lat)`."
 function midpoints(lona, lonb, lata, latb)
-    xmidp = @. 0.5f0 * cosd(latb) * cosd(lonb)
-    xmidp = @. xmidp + 0.5f0 * cosd(lata) * cosd(lona)
-    ymidp = @. 0.5f0 * cosd(latb) * sind(lonb)
-    ymidp = @. ymidp + 0.5f0 * cosd(lata) * sind(lona)
-    zmidp = @. 0.5f0 * (sind(latb) + sind(lata))
-    lonmidp = @. atand(ymidp, xmidp)
-    latmidp = @. atand(zmidp, sqrt(xmidp * xmidp + ymidp * ymidp))
+    rad(x) = x * Float32(π) / 180.0f0
+    deg(x) = x * 180.0f0 / Float32(π)
+    xmidp = @. 0.5f0 * cos(rad(latb)) * cos(rad(lonb))
+    xmidp = @. xmidp + 0.5f0 * cos(rad(lata)) * cos(rad(lona))
+    ymidp = @. 0.5f0 * cos(rad(latb)) * sin(rad(lonb))
+    ymidp = @. ymidp + 0.5f0 * cos(rad(lata)) * sin(rad(lona))
+    zmidp = @. 0.5f0 * (sin(rad(latb)) + sin(rad(lata)))
+    lonmidp = @. deg(atan(ymidp, xmidp))
+    latmidp = @. deg(atan(zmidp, sqrt(xmidp * xmidp + ymidp * ymidp)))
     return lonmidp, latmidp
 end
 

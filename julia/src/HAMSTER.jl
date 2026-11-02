@@ -4,6 +4,7 @@ using Dates
 using Interpolations
 using NCDatasets
 using Statistics
+using TOML
 
 # Land-atmosphere moisture and heat tracking. Modules are included below in the order they are used.
 
@@ -16,7 +17,7 @@ include("preprocessing.jl")
 include("tracking.jl")
 
 export midpoints, only_theta, ongrid, ongrid1d, hmin
-export read_mask, partoutput_files, read_window, read_obs, read_observations
+export read_config, read_mask, partoutput_files, read_window, read_obs, read_observations
 export delta, diagnose, correct_deltas, grid_definition, gridindex
 export attribute, parcel_blocks, shift_window, track, write_attribution
 export write_diagnosis, write_corrected, preprocess_window, preprocess

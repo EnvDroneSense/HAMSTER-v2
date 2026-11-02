@@ -49,8 +49,8 @@ type of `dq`.
 function follow_losses(q, dq)
     n, m = size(dq)
     out = zeros(eltype(dq), n, m)
-    out[:, 1] = dq[:, 1]
-    for j in 1:n, t in 2:m
+    out[:, 1] = clean.(dq[:, 1])
+    @inbounds for t in 2:m, j in 1:n
         d = dq[j, t]
         out[j, t] = clean(d < 0 ? out[j, t-1] * ((q[j, t] + d) / q[j, t]) : out[j, t-1])
     end
@@ -139,6 +139,7 @@ end
 
 "Parcel ranges of `n` blocks of equal size; the last block takes the remainder."
 function parcel_blocks(num_parc, n)
+    1 <= n <= num_parc || throw(ArgumentError("the number of blocks must be between 1 and $num_parc, got $n"))
     len = num_parc ÷ n
     return [(i-1)*len+1:(i == n ? num_parc : i * len) for i in 1:n]
 end
