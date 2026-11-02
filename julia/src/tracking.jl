@@ -11,22 +11,19 @@ Returns Float64.
 """
 function adjust_losses(q, dq)
     n, m = size(dq)
-    out = zeros(Float64, n, m)
-    for j in 1:n, t in 1:m-1
+    out = zeros(Float64, m, n)   # intervals first, so that each parcel's contributions are contiguous
+    @inbounds for j in 1:n, t in 1:m-1
         d = dq[j, t]
         if d > 0
-            out[j, t] = d
+            out[t, j] = clean(d)
         elseif d < 0
             r = (q[j, t] + d) / q[j, t]
             for s in 1:t-1
-                out[j, s] *= r
+                out[s, j] = clean(out[s, j] * r)
             end
         end
-        for s in 1:t
-            out[j, s] = clean(out[j, s])
-        end
     end
-    return out
+    return permutedims(out)
 end
 
 """
@@ -146,8 +143,12 @@ function parcel_blocks(num_parc, n)
     return [(i-1)*len+1:(i == n ? num_parc : i * len) for i in 1:n]
 end
 
-"Drop the first time step of `window` (a named tuple of `(parcels, times)` arrays) and append the new one."
-shift_window(window, new) = map((a, b) -> hcat(a[:, 2:end], b), window, new)
+"Drop the first time step of `window` (a named tuple of `(parcels, times)` arrays) and append the new one, in place."
+shift_window(window, new) = map(window, new) do a, b
+    copyto!(a, 1, a, size(a, 1) + 1, length(a) - size(a, 1))
+    a[:, end] = b
+    return a
+end
 
 "Sum of the fields of the block results `rs` (the gather and sum over the ranks); `nothing` where a field is off."
 combine(rs) = map((fields...) -> isnothing(first(fields)) ? nothing : sum(fields), rs...)
