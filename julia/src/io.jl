@@ -18,26 +18,27 @@ function read_mask(path)
     return [(lons[i], lats[j]) for j in eachindex(lats) for i in eachindex(lons) if isequal(mask[ix[i], iy[j]], 1)]
 end
 
-"""
-    read_window(files, parcels, track_heat)
+"Paths of the partoutput files of the given dates."
+partoutput_files(path, dates) =
+    [joinpath(path, "partoutputs", "partoutput_" * Dates.format(d, "yyyymmddHHMMSS") * ".nc") for d in dates]
 
-Read the parcels `parcels` (an index range) from every file. Returns `(lon, lat, qv, Delta_q, theta, Delta_theta)`,
-each `(parcels, files)`; `theta` and `Delta_theta` are `nothing` unless `track_heat`. Longitudes are in -180 to 180
-and NaN latitudes are set to -1.
 """
-function read_window(files, parcels, track_heat)
-    names = track_heat ? ("lon", "lat", "sh", "Delta_q", "theta", "Delta_theta") : ("lon", "lat", "sh", "Delta_q")
+    read_window(files, parcels, names)
+
+Read the variables `names` of the parcels `parcels` (an index range) from every file. Returns a named tuple of
+`(parcels, files)` arrays. Longitudes are wrapped to -180 to 180 and NaN latitudes are set to -1.
+"""
+function read_window(files, parcels, names)
     data = [zeros(Float32, length(parcels), length(files)) for _ in names]
     for (i, file) in enumerate(files)
         NCDataset(file) do ds
             for (a, name) in zip(data, names)
-                a[:, i] = ds[name].var[parcels, 1]
+                a[:, i] = ds[name].var[1, parcels]
             end
         end
     end
-    lon, lat, qv, Delta_q = data
-    replace!(lat, NaN32 => -1.0f0)
-    @. lon = ifelse(lon > 180, lon - 360, lon)
-    theta, Delta_theta = track_heat ? (data[5], data[6]) : (nothing, nothing)
-    return lon, lat, qv, Delta_q, theta, Delta_theta
+    window = NamedTuple{Symbol.(Tuple(names))}(data)
+    haskey(window, :lat) && replace!(window.lat, NaN32 => -1.0f0)
+    haskey(window, :lon) && (@. window.lon = ifelse(window.lon > 180, window.lon - 360, window.lon))
+    return window
 end
