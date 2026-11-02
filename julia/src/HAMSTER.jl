@@ -11,8 +11,10 @@ version() = pkgversion(@__MODULE__)
 
 include("utilities.jl")
 include("io.jl")
+include("preprocessing.jl")
 
 export midpoints, only_theta, ongrid, ongrid1d, hmin
 export read_mask, partoutput_files, read_window, read_obs, read_observations
+export delta
 
 end
