@@ -8,9 +8,9 @@ using NCDatasets
 version() = pkgversion(@__MODULE__)
 
 include("utilities.jl")
-include("sink.jl")
+include("io.jl")
 
 export midpoints, only_theta, ongrid, ongrid1d, hmin
-export read_mask
+export read_mask, read_window
 
 end
