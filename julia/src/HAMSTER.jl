@@ -2,6 +2,7 @@ module HAMSTER
 
 using Dates
 using Interpolations
+using MPI
 using NCDatasets
 using Statistics
 using TOML
@@ -16,7 +17,7 @@ include("io.jl")
 include("preprocessing.jl")
 include("tracking.jl")
 
-export midpoints, only_theta, ongrid, ongrid1d, hmin
+export midpoints, cells, only_theta, ongrid, ongrid1d
 export read_config, read_mask, partoutput_files, read_window, read_obs, read_observations
 export delta, diagnose, correct_deltas, grid_definition, gridindex
 export attribute, parcel_blocks, shift_window, track, write_attribution

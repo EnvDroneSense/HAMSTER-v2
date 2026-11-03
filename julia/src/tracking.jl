@@ -65,10 +65,10 @@ field `(parcels, intervals)` with the rows of the selected parcels it belongs to
 """
 function backward_contributions(q, dq, theta, dtheta)
     m = size(dq, 2)
-    e2q = adjust_losses(q[:, 1:m], dq)
+    e2q = adjust_losses(view(q, :, 1:m), dq)
     arrival = dq[:, m] .< 0
     e2p = arrival_precipitation(e2q[arrival, :], dq[arrival, m], q[arrival, m])
-    h2t = isnothing(theta) ? nothing : (adjust_losses(theta[:, 1:m], dtheta), :)
+    h2t = isnothing(theta) ? nothing : (adjust_losses(view(theta, :, 1:m), dtheta), :)
     return (e2p, arrival), (e2q, :), h2t
 end
 
@@ -118,23 +118,20 @@ for heat); the second is `nothing` without `save_q`, the third without `track_he
 function attribute(config, region, datesmid, lon, lat, qv, Delta_q, theta, Delta_theta)
     g, flags = grid_definition(config), config["flags"]
     forward, heat = flags["forward"], flags["track_heat"]
-    ends = forward ? (1:2) : (size(lon, 2)-1:size(lon, 2))
-    sel = in_region(region, lon[:, ends], lat[:, ends])
+    T = size(lon, 2)
+    ends = forward ? (1:2) : (T-1:T)
+    sel = in_region(region, view(lon, :, ends), view(lat, :, ends))
     contributions = forward ? forward_contributions : backward_contributions
     main, q, h = contributions(qv[sel, :], Delta_q[sel, 2:end], heat ? theta[sel, :] : nothing, heat ? Delta_theta[sel, 2:end] : nothing)
 
-    lonmid, latmid = midpoints(lon[sel, 2:end], lon[sel, 1:end-1], lat[sel, 2:end], lat[sel, 1:end-1])
-    x = gridindex.(lonmid .+ 180, Float32(g.dx))
-    x = @. ifelse(x == g.nx + 1, 1, x)
-    y = gridindex.(latmid .+ 90, Float32(g.dy))
+    ls, la = lon[sel, :], lat[sel, :]
+    x, y = cells(g, view(ls, :, 2:T), view(ls, :, 1:T-1), view(la, :, 2:T), view(la, :, 1:T-1))
 
     days = Date.(datesmid)
-    daily(a) = stack(d -> dropdims(sum(a[:, :, days .== d], dims=3), dims=3), unique(days))
-    grid(field, rows) = ongrid(g.nx, g.ny, x[rows, :], y[rows, :], field, g.mass)
-    mm((field, rows)) = nan0(daily(grid(field, rows)) .* Float32(1000 / 997) ./ g.areas)
-    wm2((field, rows)) = nan0(daily(grid(field, rows)) .* Float32(1005.7) ./ Float32(24 * 3600) ./ g.areas)
+    daily(a) = stack(d -> dropdims(sum(view(a, :, :, days .== d), dims=3), dims=3), unique(days))
+    grid((field, rows)) = daily(ongrid(g.nx, g.ny, view(x, rows, :), view(y, rows, :), field, g.mass))
     names = forward ? (:PFE, :QFE, :TFH) : (:E2P, :E2Q, :H2T)
-    return NamedTuple{names}((mm(main), flags["save_q"] ? mm(q) : nothing, heat ? wm2(h) : nothing))
+    return NamedTuple{names}((to_mm(g, grid(main)), flags["save_q"] ? to_mm(g, grid(q)) : nothing, heat ? to_wm2(g, grid(h), 24 * 3600) : nothing))
 end
 
 "Parcel ranges of `n` blocks of equal size; the last block takes the remainder."
@@ -151,7 +148,7 @@ shift_window(window, new) = map(window, new) do a, b
     return a
 end
 
-"Sum of the fields of the block results `rs` (the gather and sum over the ranks); `nothing` where a field is off."
+"Sum of the fields of the block results `rs`; `nothing` where a field is off."
 combine(rs) = map((fields...) -> isnothing(first(fields)) ? nothing : sum(fields), rs...)
 
 """
@@ -160,18 +157,24 @@ combine(rs) = map((fields...) -> isnothing(first(fields)) ? nothing : sum(fields
 Attribution for every reference date. Backward: the arrival dates from `start_date + dt` to `end_date`, tracked over the
 `num_days` before. Forward: the starting dates from `start_date` to `end_date - dt`, tracked over the `num_days` after.
 `attribution_{e2p,e2q,h2t}_<date>.nc` (forward `pfe`, `qfe`, `tfh`, dated at the end of the first interval) is written to
-`path_data2/attribution`. The parcels are split into `blocks` parts that are processed one after the other and summed.
-The first date reads all files; every later date reads only its newest file and shifts the window.
+`path_data2/attribution`. The first date reads all files; every later date reads only its newest file and shifts the
+window.
+
+With MPI initialised (`MPI.Init()`, started with `mpiexec`), every rank takes an equal share of the parcels, the fields are
+summed on rank 0 and rank 0 writes them. Within a rank, the parcels are split into `blocks` parts that are processed one
+after the other and summed.
 """
 function track(config; blocks=1)
     c, d, flags, paths = config["constants"], config["dates"], config["flags"], config["paths"]
     dt, half, forward = c["dt"], Second(c["dt"] * 1800), flags["forward"]
-    format = dateformat"yyyy-mm-dd_HH"
+    comm = MPI.Initialized() ? MPI.COMM_WORLD : nothing
+    rank, ranks = isnothing(comm) ? (0, 1) : (MPI.Comm_rank(comm), MPI.Comm_size(comm))
     region = Set(read_mask(joinpath(paths["path_mask"], "mask.nc")))
     names = ["lon", "lat", "sh", "Delta_q"]
     flags["track_heat"] && append!(names, ["theta", "Delta_theta"])
-    parcels = parcel_blocks(c["num_parc"], blocks)
-    first_date, last_date = DateTime(d["start_date"], format), DateTime(d["end_date"], format)
+    mine = parcel_blocks(c["num_parc"], ranks)[rank+1]
+    parcels = [mine[p] for p in parcel_blocks(length(mine), blocks)]
+    first_date, last_date = DateTime(d["start_date"], DATEFORMAT), DateTime(d["end_date"], DATEFORMAT)
     references = forward ? (first_date:Hour(dt):last_date-Hour(dt)) : (first_date+Hour(dt):Hour(dt):last_date)
 
     window = nothing
@@ -184,11 +187,13 @@ function track(config; blocks=1)
         window = isnothing(window) ? new : shift_window.(window, new)
 
         r = combine([attribute(config, region, datesmid, w.lon, w.lat, w.sh, w.Delta_q, get(w, :theta, nothing), get(w, :Delta_theta, nothing)) for w in window])
+        isnothing(comm) || (r = map(field -> isnothing(field) ? nothing : MPI.Reduce(field, +, comm; root=0), r))
+        rank == 0 || continue
         tlevel = DateTime.(unique(Date.(datesmid)))
         stamped = forward ? reference + Hour(dt) : reference
-        stamp = Dates.format(stamped, "yyyymmddHHMMSS")
         for (name, field) in pairs(r)
-            isnothing(field) || write_attribution(joinpath(paths["path_data2"], "attribution", "attribution_$(lowercase(String(name)))_$stamp.nc"), config, stamped - half, tlevel, String(name), field)
+            file = joinpath(paths["path_data2"], "attribution", "attribution_$(lowercase(String(name)))_$(stamp(stamped)).nc")
+            isnothing(field) || write_attribution(file, config, stamped - half, tlevel, String(name), field)
         end
     end
 end

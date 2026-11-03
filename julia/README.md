@@ -17,8 +17,11 @@ Julia port of the Python code in `../python`. The Python code is the reference.
 ```
 julia --project=julia julia/scripts/run.jl preprocess julia/namelist.toml
 julia --project=julia julia/scripts/run.jl track julia/namelist.toml [blocks]
+mpiexec -n 32 julia --project=julia julia/scripts/run.jl track julia/namelist.toml [blocks]
 julia --project=julia julia/test/runtests.jl
 ```
 
-`blocks` splits the parcels into that many parts, processed one after the other. The tests need the reference files in
+Tracking splits the parcels over the MPI ranks; rank 0 sums the fields and writes them. `blocks` splits the parcels of
+each rank into that many parts, processed one after the other. On a cluster, point MPI.jl at the system MPI first
+(`MPIPreferences.use_system_binary()`). The tests need the reference files in
 `test/reference/`; they are not in git and are written by `make_reference.py`.

@@ -1,3 +1,9 @@
+"Format of the dates in the namelist."
+const DATEFORMAT = dateformat"yyyy-mm-dd_HH"
+
+"Time stamp of a file name, `yyyymmddHHMMSS`."
+stamp(time) = Dates.format(time, "yyyymmddHHMMSS")
+
 "Keys of the namelist, by section, and the type each value must have."
 const NAMELIST = (
     "dates" => ("start_date" => String, "end_date" => String),
@@ -24,7 +30,7 @@ function read_config(path)
             push!(problems, "[$section] $key is still the placeholder \"$value\"")
         elseif !(value isa type) || (value isa Bool && type !== Bool)
             push!(problems, "[$section] $key = $(repr(value)) is not of type $type")
-        elseif section == "dates" && isnothing(tryparse(DateTime, value, dateformat"yyyy-mm-dd_HH"))
+        elseif section == "dates" && isnothing(tryparse(DateTime, value, DATEFORMAT))
             push!(problems, "[$section] $key = \"$value\" is not a date of the form yyyy-mm-dd_HH")
         end
     end
@@ -55,7 +61,7 @@ end
 
 "Paths of the partoutput files of the given dates."
 partoutput_files(path, dates) =
-    [joinpath(path, "partoutputs", "partoutput_" * Dates.format(d, "yyyymmddHHMMSS") * ".nc") for d in dates]
+    [joinpath(path, "partoutputs", "partoutput_" * stamp(d) * ".nc") for d in dates]
 
 """
     read_window(files, parcels, names)
@@ -85,8 +91,6 @@ Field `name` of an ERA5 file at `time`, shifted to longitudes -180 to 180 and in
 grid `g` (see `grid_definition`). Returns an `(nx, ny)` array.
 """
 function read_obs(file, name, time, g)
-    lons = range(-180, step=g.dx, length=g.nx)
-    lats = range(-90, step=g.dy, length=g.ny)
     NCDataset(file) do ds
         it = findfirst(==(time), ds["time"][:])
         isnothing(it) && error("time $time is not in $file")
@@ -95,7 +99,7 @@ function read_obs(file, name, time, g)
         field = nomissing(ds[name][:, :, it], NaN)
         ilon, ilat = sortperm(lon), sortperm(lat)
         itp = linear_interpolation((lon[ilon], lat[ilat]), field[ilon, ilat])
-        return [itp(x, y) for x in lons, y in lats]
+        return [itp(x, y) for x in g.lons, y in g.lats]
     end
 end
 
@@ -115,6 +119,16 @@ function read_observations(config, time)
     return e_obs, p_obs, h_obs
 end
 
+"Define the dimensions `lon`, `lat`, `time` (one step, `time`) and their coordinates of grid `g` in the dataset `ds`."
+function define_grid!(ds, g, time)
+    defDim(ds, "lon", g.nx)
+    defDim(ds, "lat", g.ny)
+    defDim(ds, "time", 1)
+    defVar(ds, "lon", Float32.(g.lons), ("lon",))
+    defVar(ds, "lat", Float32.(g.lats), ("lat",))
+    defVar(ds, "time", [time], ("time",))
+end
+
 """
     write_diagnosis(file, config, time, d)
 
@@ -126,12 +140,7 @@ function write_diagnosis(file, config, time, d)
     fields = (E=d.evap, E_n_part=d.n_evap, P=d.prec, P_n_part=d.n_prec, H=d.heat, H_n_part=d.n_heat, IWV=d.iwv, n_part=d.n_part)
     mkpath(dirname(file))
     NCDataset(file, "c") do ds
-        defDim(ds, "lon", g.nx)
-        defDim(ds, "lat", g.ny)
-        defDim(ds, "time", 1)
-        defVar(ds, "lon", Float32.(range(-180, step=g.dx, length=g.nx)), ("lon",))
-        defVar(ds, "lat", Float32.(range(-90, step=g.dy, length=g.ny)), ("lat",))
-        defVar(ds, "time", [time], ("time",))
+        define_grid!(ds, g, time)
         for (name, a) in pairs(fields)
             isnothing(a) || (defVar(ds, String(name), eltype(a), ("lon", "lat", "time"))[:, :, 1] = a)
         end
@@ -171,14 +180,9 @@ function write_attribution(file, config, time, tlevel, name, field)
     g = grid_definition(config)
     mkpath(dirname(file))
     NCDataset(file, "c") do ds
-        defDim(ds, "lon", g.nx)
-        defDim(ds, "lat", g.ny)
+        define_grid!(ds, g, time)
         defDim(ds, "tlevel", length(tlevel))
-        defDim(ds, "time", 1)
-        defVar(ds, "lon", Float32.(range(-180, step=g.dx, length=g.nx)), ("lon",))
-        defVar(ds, "lat", Float32.(range(-90, step=g.dy, length=g.ny)), ("lat",))
         defVar(ds, "tlevel", tlevel, ("tlevel",))
-        defVar(ds, "time", [time], ("time",))
         defVar(ds, name, Float32, ("lon", "lat", "tlevel", "time"))[:, :, :, 1] = field
     end
 end

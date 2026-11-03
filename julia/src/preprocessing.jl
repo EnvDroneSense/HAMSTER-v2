@@ -13,22 +13,18 @@ Grid the evaporation, precipitation and heat that the parcels diagnose between t
 """
 function diagnose(config, lon, lat, qv, Delta_q, Delta_theta)
     g = grid_definition(config)
-    lonmid, latmid = midpoints(lon[:, 2], lon[:, 1], lat[:, 2], lat[:, 1])
-    x = gridindex.(lonmid .+ 180, Float32(g.dx))
-    x = @. ifelse(x == g.nx + 1, 1, x)
-    y = gridindex.(latmid .+ 90, Float32(g.dy))
+    x, y = cells(g, view(lon, :, 2), view(lon, :, 1), view(lat, :, 2), view(lat, :, 1))
 
     grid(f, keep) = ongrid1d(g.nx, g.ny, x[keep], y[keep], f[keep], g.mass)
     iwv, n_part = ongrid1d(g.nx, g.ny, x, y, vec(mean(qv, dims=2)), g.mass)
     evap, n_evap = grid(Delta_q, Delta_q .> 0)
     prec, n_prec = grid(Delta_q, Delta_q .< 0)
-    mm(kg) = nan0(kg .* Float32(1000 / 997) ./ g.areas)
     heat = n_heat = nothing
     if !isnothing(Delta_theta)
         heat, n_heat = grid(Delta_theta, Delta_theta .> 0)
-        heat = nan0(heat .* Float32(1005.7) ./ Float32(config["constants"]["dt"] * 3600) ./ g.areas)
+        heat = to_wm2(g, heat, config["constants"]["dt"] * 3600)
     end
-    return (; x, y, iwv=mm(iwv), n_part, evap=mm(evap), n_evap, prec=mm(prec), n_prec, heat, n_heat)
+    return (; x, y, iwv=to_mm(g, iwv), n_part, evap=to_mm(g, evap), n_evap, prec=to_mm(g, prec), n_prec, heat, n_heat)
 end
 
 "The values of `field[x, y]` for each parcel; NaN for parcels outside the grid."
@@ -77,7 +73,7 @@ function preprocess_window(config, arrival, first)
     Delta_theta = heat ? delta(theta) : nothing
 
     d = diagnose(config, w.lon, w.lat, w.sh, Delta_q, Delta_theta)
-    flags["save_diagnose"] && write_diagnosis(joinpath(path, "diagnosis", "diagnosis_" * Dates.format(arrival, "yyyymmddHHMMSS") * ".nc"), config, middle, d)
+    flags["save_diagnose"] && write_diagnosis(joinpath(path, "diagnosis", "diagnosis_" * stamp(arrival) * ".nc"), config, middle, d)
     Delta_q, Delta_theta = correct_deltas(d, Delta_q, Delta_theta, read_observations(config, middle)...)
 
     column(a, i) = isnothing(a) ? nothing : a[:, i]
@@ -94,9 +90,8 @@ forward from `start_date + dt` to `end_date + num_days`.
 """
 function preprocess(config)
     c, d = config["constants"], config["dates"]
-    format = dateformat"yyyy-mm-dd_HH"
     forward = config["flags"]["forward"]
-    start, stop = DateTime(d["start_date"], format), DateTime(d["end_date"], format)
+    start, stop = DateTime(d["start_date"], DATEFORMAT), DateTime(d["end_date"], DATEFORMAT)
     first_date = forward ? start + Hour(c["dt"]) : start - Day(c["num_days"]) + Hour(c["dt"])
     for arrival in first_date:Hour(c["dt"]):(forward ? stop + Day(c["num_days"]) : stop)
         preprocess_window(config, arrival, arrival == first_date)
