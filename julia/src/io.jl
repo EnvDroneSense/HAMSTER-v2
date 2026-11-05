@@ -97,7 +97,7 @@ function read_obs(file, name, time, g)
         lon = mod.(ds["longitude"][:] .+ 180, 360) .- 180
         lat = ds["latitude"][:]
         field = nomissing(ds[name][:, :, it], NaN)
-        ilon, ilat = sortperm(lon), sortperm(lat)
+        ilon, ilat = sortperm(lon), sortperm(lat) # sorted ascending for interpolation
         itp = linear_interpolation((lon[ilon], lat[ilat]), field[ilon, ilat])
         return [itp(x, y) for x in g.lons, y in g.lats]
     end

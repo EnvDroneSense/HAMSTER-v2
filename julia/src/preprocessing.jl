@@ -80,7 +80,7 @@ function preprocess_window(config, arrival, first)
     if first
         zero_q = zeros(Float32, length(parcels))
         write_corrected(out[1], raw[1], parcels, (; Delta_q=zero_q, theta=column(theta, 1), Delta_theta=heat ? zero_q : nothing))
-    end
+    end # doesn't delete the raw file, allows to re-run the preprocessing
     write_corrected(out[2], raw[2], parcels, (; Delta_q, theta=column(theta, 2), Delta_theta))
 end
 

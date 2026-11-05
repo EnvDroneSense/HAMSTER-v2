@@ -118,14 +118,14 @@ for heat); the second is `nothing` without `save_q`, the third without `track_he
 function attribute(config, region, datesmid, lon, lat, qv, Delta_q, theta, Delta_theta)
     g, flags = grid_definition(config), config["flags"]
     forward, heat = flags["forward"], flags["track_heat"]
-    T = size(lon, 2)
-    ends = forward ? (1:2) : (T-1:T)
+    ntimes = size(lon, 2)
+    ends = forward ? (1:2) : (ntimes-1:ntimes)
     sel = in_region(region, view(lon, :, ends), view(lat, :, ends))
     contributions = forward ? forward_contributions : backward_contributions
     main, q, h = contributions(qv[sel, :], Delta_q[sel, 2:end], heat ? theta[sel, :] : nothing, heat ? Delta_theta[sel, 2:end] : nothing)
 
     ls, la = lon[sel, :], lat[sel, :]
-    x, y = cells(g, view(ls, :, 2:T), view(ls, :, 1:T-1), view(la, :, 2:T), view(la, :, 1:T-1))
+    x, y = cells(g, view(ls, :, 2:ntimes), view(ls, :, 1:ntimes-1), view(la, :, 2:ntimes), view(la, :, 1:ntimes-1))
 
     days = Date.(datesmid)
     daily(a) = stack(d -> dropdims(sum(view(a, :, :, days .== d), dims=3), dims=3), unique(days))
@@ -137,7 +137,7 @@ end
 "Parcel ranges of `n` blocks of equal size; the last block takes the remainder."
 function parcel_blocks(num_parc, n)
     1 <= n <= num_parc || throw(ArgumentError("the number of blocks must be between 1 and $num_parc, got $n"))
-    len = num_parc ÷ n
+    len = div(num_parc, n)
     return [(i-1)*len+1:(i == n ? num_parc : i * len) for i in 1:n]
 end
 

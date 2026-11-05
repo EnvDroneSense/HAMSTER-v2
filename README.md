@@ -3,40 +3,39 @@ Parallel version of the Heat And MoiSture Tracking framEwoRk
 
 ----
 
-This is an updated and improved version of the *Heat And MoiSture Tracking framEwoRk* (see https://github.com/h-cel/hamster). One of the main updates is that part of the code is now parallelized. The new version follows the same logic as the previous version in that HAMSTER is mainly based on the WaterSip moisture tracking algorithm (https://gfi.wiki.uib.no/WaterSip), but including bias correction by ingesting evaporation and precipitation observations. Furthermore, unlike WaterSip, HAMSTER is also adapted for tracking sensible heat. However, this new version has a completely different code structure to the previous one. HAMSTER v2 now consists of two python scripts (*preprocessing.py* and *tracking.py*), plus an additional one with some useful functions (*utilities.py*). It also includes a control file (*namelist.input*) to set some input variables.
+Updated version of the *Heat And MoiSture Tracking framEwoRk* (https://github.com/h-cel/hamster). It follows the WaterSip moisture tracking algorithm (https://gfi.wiki.uib.no/WaterSip) and adds bias correction with observed evaporation and precipitation, and tracking of sensible heat. The code has a new structure: two scripts (*preprocessing.py*, *tracking.py*), one with helper functions (*utilities.py*) and a control file (*namelist.input*). The tracking is parallelized with MPI.
 
 ## Repository layout
 
 | Folder | Holds |
 |---|---|
-| `python/` | the Python code: `preprocessing.py`, `tracking.py`, `utilities.py`, `namelist.input`, `example/` (job scripts, sink mask) and `parallel-HAMSTER_forward/`. Where this README says *example folder* or *parallel-HAMSTER_forward*, read `python/example` and `python/parallel-HAMSTER_forward`. Copy the files to the run folder as before |
-| `julia/` | `HAMSTER.jl`, a Julia port in progress (structure only; the Python code is the reference) |
+| `python/` | The reference code: `preprocessing.py`, `tracking.py`, `utilities.py`, `namelist.input`, `example/` (job scripts, sink mask) and `parallel-HAMSTER_forward/` (forward version). Copy the files to the run folder |
+| `julia/` | `HAMSTER.jl`, a Julia port of preprocessing and tracking (backward and forward, MPI). Reads the raw data without overwriting it. See `julia/README.md` |
 
 ## Context
 
-HAMSTER v2 attributes the moisture sources for a precipitation event in a specific region, which we will normally refer to as the sink  region. This is achieved by tracking the moisture gains and losses of the air parcels contributing to the precipitation event under study in the days prior to the event. The definition of an air parcel must be understood from a Lagrangian point of view, in which the atmosphere is divided into particles that follow the atmospheric flow. HAMSTER therefore needs to be forced with the outputs of a Lagrangian transport model, which provides us with the positions of the parcels as well as their associated specific humidity, among other variables. The code is only set up to read the outputs of the FLEXPART v11 Lagrangian model (see https://www.flexpart.eu). Global FLEXPART-ERA5 trajectories from 1979 until 2024 and with approx. 20 million parcels are publicaly available (https://zenodo.org/records/17952362). To work with another Lagrangian model, the part of the code responsible for reading the input data would have to be adapted.
+HAMSTER attributes the moisture sources of a precipitation event in a region (the sink region) by tracking the moisture gains and losses of the air parcels that contribute to it in the days before the event. Parcels follow the flow (Lagrangian view), so HAMSTER needs the output of a Lagrangian transport model. Only FLEXPART v11 output (https://www.flexpart.eu) is supported. Global FLEXPART-ERA5 trajectories for 1979-2024 with about 20 million parcels are available at https://zenodo.org/records/17952362. For another model, the input reading has to be adapted.
 
-Once the variations in the specific humidity of the parcels have been tracked, HAMSTER produces a two-dimensional field of moisture sources, like the one shown below:
+HAMSTER produces a two-dimensional field of moisture sources, like the one below:
 
 <div align="center">
   <img src="https://github.com/user-attachments/assets/c59e8a29-7542-4607-a799-2d4f439220e6" width="500"/>
 </div>
 
-This field, which we call E2P, represents, for each cell in the grid, the amount of moisture evaporated in that cell that ends up contributing to the precipitation event of interest. In the case of this figure, the analyzed precipitation event is the one that caused the floods in Germany and Belgium in July 2021 (black box). HAMSTER can produce analogous fields for the contribution of evaporation to integrated water vapor (E2Q) and for the contribution of sensible heat to the temperature in the sink region (which we call H2T).
+This field, E2P, gives for each grid cell the moisture evaporated there that ends up in the precipitation event (here the floods in Germany and Belgium in July 2021, black box). HAMSTER also produces the contribution of evaporation to integrated water vapor (E2Q) and of sensible heat to the temperature in the sink region (H2T).
 
 ## Components
 
-1) **preprocessing.py**
+| Script | Does |
+|---|---|
+| `preprocessing.py` | Reads the raw partoutputs and, for each pair of dates, computes the change in specific humidity (*Delta_q = qv[1,:] - qv[0,:]*) or potential temperature (*Delta_theta*) of every parcel. It corrects these changes with observed evaporation and precipitation: for example, a positive *Delta_q* in a cell with zero observed evaporation is set to 0, and a negative *Delta_q* without rain is set to 0. The correction acts en route, so it changes the relative contributions of the sources, not only the total (as in the previous version). The corrected values are written back to the partoutputs. Runs serially and only once |
+| `tracking.py` | Reads the corrected partoutputs and the sink region, selects the parcels in the sink and applies WaterSip to get E2P, E2Q or H2T. It is run for each sink region. It tracks 30 days back: with `dt` = 3 h and 20 million parcels, *Delta_q* alone is 240 x 20,000,000, so it needs a lot of RAM and uses MPI |
 
-   It reads the raw outputs of FLEXPART v11 (partoutputs) and iterates on dates to calculate the changes in specific humidity (*Delta_q*) of all the air parcels, or the changes in potential temperature (*Delta_theta*) for heat tracking. To this end, in each iteration, two files are read and their specific humidities (*qv*) are subtracted, that is, *Delta_q = qv[1,:]-qv[0,:]*. Subsequently, these *Delta_q* are corrected using observed evaporation and precipitation values. As a simple example, if on a given grid cell we have positive *Delta_q* values in the atmospheric column but the observed evaporation in that cell is equal to zero, we correct those *Delta_q* to zero. Likewise, if we have negative *Delta_q* but there is no rain, *Delta_q* is set to zero. This is one of the main improvements of HAMSTER v2 with respect to its previous version, since now the bias correction is applied directly to *Delta_q* (i.e. en route) and not a posteriori to correct the output fields (e.g. E2P). More specifically, previously, the bias correction for precipitation only scaled the E2P field to make it consistent with the rainfall in the sink region, but had no effect on the relative contributions of the sources. Now both the bias correction for evaporation and precipitation affect the spatial distribution of fields such as E2P and therefore the relative contributions of the sources. Once the *Delta_q* and/or *Delta_theta* have been corrected, the portoutputs files are updated with these new arrays.
+Run `preprocessing.py` first, then `tracking.py`.
 
-3) **tracking.py**
+## Prerequisites
 
-   It reads the modified partouputs,  i.e., those containing the corrected *Delta_q* and/or *Delta_theta*. It also reads the sink region of interest, in which we select the air parcels to be tracked. It then applies the WaterSip algorithm to calculate the source fields (E2P, E2Q or H2T) using these corrected values. The arrays in this part of the code can be very heavy as the tracking is done in the 30 days prior to the study date. If we work with a time step of 3 hours and a total of 20 million parcels, this implies that *Delta_q*, for instance, will have the dimensions 240*20000000. This means that the code has a high demand for RAM. Furthermore, even when the arrays are loaded into RAM, the code may not be fast enough, especially if you want to analyze long periods of time. For this reason, this part of the code uses MPI parallelization to reduce computation time.
-
-## Prerequisites 
-
-It requires python 3 and the python modules shown below:
+Python 3 with xarray, numba, netcdf4-python, mpi4py and h5py. On HPC-UGent:
 
 ```
 module purge
@@ -46,13 +45,10 @@ module load netcdf4-python/1.6.4-foss-2023a
 module load mpi4py/3.1.4-gompi-2023a
 module load h5py/3.9.0-foss-2023a
 ```
-The example above shows how we load these modules on the HPC-UGent environment, but, of course, we could install them in our own environment and use other versions.
 
 ## Running HAMSTER v2
 
-The *preprocessing.py* script only needs to be run once, while *tracking.py* has to be run for each of the sink regions we are interested in. On the other hand, *preprocessing.py* is not as RAM demanding as *tracking.py* is. That is why *preprocessing.py* runs serially and *tracking.py* is parallelized. Therefore, both scripts have to be run separately, first *preprocessing.py* and, once finished, *tracking.py*. An example of sending both *preprocessing.py* and *tracking.py* to the HPC-UGent queues can be found in the *example* folder. 
-
-As an example, a submission script for *preprocessing.py* would look like this:
+Example submission scripts are in `python/example`. Preprocessing (serial):
 
 ```
 #!/bin/bash
@@ -62,14 +58,10 @@ As an example, a submission script for *preprocessing.py* would look like this:
 #PBS -l mem=6GB
 #PBS -A 2022_204
 
-.
-.
-.
-
 python $run_path/preprocessing.py
 ```
 
-Whereas for *tracking.py*:
+Tracking (MPI):
 
 ```
 #!/bin/bash
@@ -79,16 +71,11 @@ Whereas for *tracking.py*:
 #PBS -l mem=120GB
 #PBS -A 2022_204
 
-.
-.
-.
-
 mpirun -np $PBS_NP python $run_path/tracking.py
 ```
 
 ## Control file
 
-To make the program more user-friendly, the input variables are selected in a control file that looks like this:
 ```
 [DATES]
 start_date=set_dateini
@@ -118,22 +105,41 @@ track_heat=false
 obs_era5=true
 save_e2q=true
 save_diagnose=true
- ```
-In the DATES section, the start_date and end_date of the period of interest are selected. In CONSTANTS, num_days would be the number of days we want to track the air parcels, dt, dx and dy are the temporal and spatial resolution of the data, respectively, num_parc is the total number of air parcels in the Lagrangian model simulations and atm_mass is the total atmospheric mass in these simulations. In the PATHS section we include the path to the folder containing the FLEXPART output files (path_data1), the path to the folder where we are going to store the HAMSTER outputs (path_data2), the path to the file containing the sink region (path_mask) and the path to the observational data files for bias correction (path_obs). NAMES stands for the names of the NetCDF files containing the observed evaporation (obs_evap), heat (obs_heat) and precipitation (obs_prec). Finally, in FLAGS, we include the option to activate or deactivate heat tracking (track_heat), and  also to save or not save E2Q (save_e2q), as well as the E and P diagnostics (save_diagnose). In addition, in this section, obs_era5 is used to indicate whether or not observed ERA5 data are used for bias correction.
+```
+
+| Key | Meaning |
+|---|---|
+| `start_date`, `end_date` | Period of interest |
+| `num_days` | Days to track the parcels |
+| `dt`, `dx`, `dy` | Temporal (h) and spatial (degrees) resolution |
+| `num_parc`, `atm_mass` | Number of parcels and total atmospheric mass in the simulation |
+| `path_data1` | FLEXPART output (partoutputs) |
+| `path_data2` | HAMSTER output |
+| `path_mask` | Sink (or source) region file |
+| `path_obs` | Observations for the bias correction |
+| `obs_evap`, `obs_heat`, `obs_prec` | NetCDF file names of the observed evaporation, heat and precipitation |
+| `track_heat` | Track heat |
+| `obs_era5` | Observations are ERA5 |
+| `save_e2q` | Save E2Q |
+| `save_diagnose` | Save the E and P diagnostics |
 
 ## Backward and forward versions
 
-HAMSTER is able to track moisture both backwards and forwards in time. What we have described so far is the backwards variant, for which the sink region is predefined and the changes in specific humidity of the air parcels that reach it during the rain event are tracked. Another option is to predefine the source and track the moisture that evaporates from it over the next 30 days. This is the forward version. In this case the output fields of HAMSTER are called PFE (precipitation from evaporation), QFE (integrated water vapor from evaporation) and HFS (sensible heat from source). Here is an example for rainfall from evaporation in North America in July 2021, i.e. PFE:
+The description above is the backward version: the sink region is given and the parcels that reach it during the rain event are tracked back. In the forward version the source region is given and the moisture that evaporates from it is tracked over the next 30 days. Its output fields are PFE (precipitation from evaporation), QFE (integrated water vapor from evaporation) and HFS (sensible heat from source). Example: PFE for North America, July 2021:
 
 <div align="center">
   <img src="https://github.com/user-attachments/assets/020671cf-585c-4c89-b2fa-f64939225a23" width="500"/>
 </div>
 
-The forward version can be found in the *parallel-HAMSTER_forward* directory.
+The forward code is in `python/parallel-HAMSTER_forward`.
 
 ## Caveats
 
-The code is only adapted to ingest data in a specific format. We have already given an example; if you want to use the outputs of a Lagrangian model other than FLEXPART v11, the code has to be adapted. Likewise, the target regions must have a specific format in terms of coordinates and variable name (*mask*). An example of a sink region can be seen in the *example* folder and an example of a source region in *parallel-HAMSTER_forward/example*. On the other hand, the code is only adapted to use observational data from ERA5. If you want to use another dataset for bias correction, the *preprocessing.py* script has to be modified accordingly. The time step for the observations must be the one set in *namelist.input*, which means that if dt=3, the observations must be 3-hourly. Furthermore, the dates in the observations must be centered (e.g. evaporation from 00 to 03 UTC has a date of 01:30 UTC). This can be done by modifying the ERA5 files using, for instance, the CDO settaxis function, or by directly  modifying *preprocessing.py*. In the output of *tracking.py*, the filename will contain the date of the end of the period, but the timestamp in the file is also centered. For example, the moisture source for rainfall between 00 and 03 UTC on June 1, 2015 will be saved as attribution_e2p_20150601030000.nc, but in reality the time variable will be set to 01:30 UTC. In short, it would be advisable to be familiar with the code and not just with its execution. This limits the chances of making mistakes that go unnoticed.
+- Only FLEXPART v11 output is read.
+- Sink and source regions need the right coordinates and a variable named *mask*. Examples: `python/example` (sink) and `python/parallel-HAMSTER_forward/example` (source).
+- Only ERA5 observations are supported. The observation time step must equal `dt` (3-hourly for `dt` = 3), and the dates must be centered (evaporation from 00 to 03 UTC is dated 01:30 UTC). Use for instance the CDO `settaxis` function, or change `preprocessing.py`.
+- The tracking output file name has the date of the end of the period, but the time stamp inside is centered: the sources of rainfall between 00 and 03 UTC on 1 June 2015 are in `attribution_e2p_20150601030000.nc` with time 01:30 UTC.
+- Know the code, not only how to run it, to avoid errors that go unnoticed.
 
 ## Referencing
 If you use HAMSTER v2, please cite:
